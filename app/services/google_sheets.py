@@ -41,7 +41,7 @@ def get_sheets_service():
 
 def fetch_vocabulary(
     spreadsheet_id: str = None,
-    sheet_name: str = "Sheet1",
+    sheet_name: str = None,
     range_str: str = "A:T"
 ) -> list[dict]:
     """
@@ -60,12 +60,21 @@ def fetch_vocabulary(
         if not spreadsheet_id:
             raise ValueError("SPREADSHEET_ID environment variable not set")
     
+    if sheet_name is None:
+        sheet_name = os.getenv('SHEET_NAME', 'Sheet1')
+    
     service = get_sheets_service()
     sheet = service.spreadsheets()
     
+    # Sheet names with spaces need single quotes
+    if ' ' in sheet_name or '-' in sheet_name:
+        range_notation = f"'{sheet_name}'!{range_str}"
+    else:
+        range_notation = f"{sheet_name}!{range_str}"
+    
     result = sheet.values().get(
         spreadsheetId=spreadsheet_id,
-        range=f"{sheet_name}!{range_str}"
+        range=range_notation
     ).execute()
     
     rows = result.get('values', [])
@@ -73,15 +82,22 @@ def fetch_vocabulary(
     if not rows:
         return []
     
-    # First row contains headers
-    headers = rows[0]
+    # Get header row index from env (default 1, meaning first row)
+    # Set to 2 if the first row has errors or is not headers
+    header_row_index = int(os.getenv('HEADER_ROW', '1')) - 1  # Convert to 0-indexed
+    
+    if header_row_index >= len(rows):
+        return []
+    
+    headers = rows[header_row_index]
     
     # Convert remaining rows to dictionaries
     vocabulary = []
-    for row in rows[1:]:
+    for row in rows[header_row_index + 1:]:
         # Pad row with empty strings if shorter than headers
         padded_row = row + [''] * (len(headers) - len(row))
         word_dict = dict(zip(headers, padded_row))
         vocabulary.append(word_dict)
     
     return vocabulary
+
