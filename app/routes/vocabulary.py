@@ -53,12 +53,13 @@ def transform_to_flashcard(word: dict) -> dict:
 @router.get("/vocabulary")
 def get_vocabulary(
     level: Optional[str] = Query(None, description="CEFR level (A1, A2, B1, B2, C1)"),
-    category: Optional[str] = Query(None, description="Category name"),
+    category: Optional[str] = Query(None, description="Category name or slug"),
     limit: Optional[int] = Query(None, description="Maximum number of words"),
     transform: bool = Query(True, description="Transform to flashcard format")
 ):
     """
     Get vocabulary words with optional filtering.
+    Category can be the original name or a URL-friendly slug.
     """
     try:
         words = fetch_vocabulary()
@@ -68,7 +69,15 @@ def get_vocabulary(
             words = [w for w in words if w.get('CEFR Level', '').upper() == level.upper()]
         
         if category:
-            words = [w for w in words if category.lower() in w.get('Category', '').lower()]
+            # Match both original category name and slug
+            def matches_category(word):
+                cat = word.get('Category', '')
+                cat_slug = slugify(cat) if cat else ''
+                category_lower = category.lower()
+                # Match if category contains search term OR slug matches
+                return (category_lower in cat.lower()) or (category_lower == cat_slug)
+            
+            words = [w for w in words if matches_category(w)]
         
         if limit:
             words = words[:limit]
@@ -149,3 +158,68 @@ def get_available_categories():
         return {"categories": categories}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def slugify(text: str) -> str:
+    """Convert text to URL-friendly slug."""
+    import re
+    # Convert to lowercase
+    slug = text.lower()
+    # Replace & with 'and'
+    slug = slug.replace('&', 'and')
+    # Replace spaces and special chars with hyphens
+    slug = re.sub(r'[^a-z0-9]+', '-', slug)
+    # Remove leading/trailing hyphens
+    slug = slug.strip('-')
+    return slug
+
+
+@router.get("/vocabulary/categories-by-level")
+def get_categories_by_level(
+    level: Optional[str] = Query(None, description="CEFR level (A1, A2, B1, B2, C1, C2)")
+):
+    """
+    Get categories grouped by CEFR level with word counts.
+    If level is provided, returns categories for that level only.
+    """
+    try:
+        words = fetch_vocabulary()
+        
+        # Filter by level if provided
+        if level:
+            words = [w for w in words if w.get('CEFR Level', '').upper() == level.upper()]
+        
+        # Group by category and count words
+        category_counts = {}
+        category_subcategories = {}
+        
+        for word in words:
+            cat = word.get('Category', '')
+            subcat = word.get('Sub Category', '')
+            
+            if cat:
+                if cat not in category_counts:
+                    category_counts[cat] = 0
+                    category_subcategories[cat] = set()
+                category_counts[cat] += 1
+                if subcat:
+                    category_subcategories[cat].add(subcat)
+        
+        # Build response
+        categories = []
+        for cat_name, count in sorted(category_counts.items()):
+            categories.append({
+                "name": cat_name,
+                "slug": slugify(cat_name),
+                "wordCount": count,
+                "subcategories": sorted(list(category_subcategories[cat_name]))
+            })
+        
+        return {
+            "level": level.upper() if level else None,
+            "totalCategories": len(categories),
+            "categories": categories
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
