@@ -91,11 +91,16 @@ def get_vocabulary(
 @router.get("/vocabulary/lesson/{lesson_id}")
 def get_lesson_words(
     lesson_id: int,
+    level: Optional[str] = Query(None, description="CEFR level (A1, A2, B1, B2, C1, C2)"),
     words_per_lesson: int = Query(10, description="Number of words per lesson")
 ):
-    """Get words for a specific lesson."""
+    """Get words for a specific lesson, optionally filtered by CEFR level."""
     try:
         all_words = fetch_vocabulary()
+        
+        # Filter by level if provided
+        if level:
+            all_words = [w for w in all_words if w.get('CEFR Level', '').upper() == level.upper()]
         
         start_idx = (lesson_id - 1) * words_per_lesson
         end_idx = start_idx + words_per_lesson
@@ -108,6 +113,7 @@ def get_lesson_words(
         
         return {
             "lesson_id": lesson_id,
+            "level": level,
             "words_per_lesson": words_per_lesson,
             "total_words": len(all_words),
             "total_lessons": (len(all_words) + words_per_lesson - 1) // words_per_lesson,
@@ -118,6 +124,7 @@ def get_lesson_words(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @router.get("/vocabulary/levels")
