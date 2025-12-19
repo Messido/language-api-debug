@@ -14,8 +14,6 @@ env/
 .env.*.local
 
 # Credentials - NEVER commit these!
-credentials.json
-*.json
 !package.json
 
 # IDE
