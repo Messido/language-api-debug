@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -10,13 +11,17 @@ app = FastAPI(
 )
 
 # CORS Configuration
+origins = [
+    "http://localhost:5173",      # Vite dev server
+    "http://localhost:3000",      # Alternative dev port
+]
+
+if vercel_url := os.getenv("VERCEL_URL"):
+    origins.append(vercel_url)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",      # Vite dev server
-        "http://localhost:3000",      # Alternative dev port
-        "https://your-app.vercel.app" # Production URL - update this
-    ],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
