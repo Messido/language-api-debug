@@ -1,14 +1,56 @@
 import os
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from app.core.logging import get_logger
+from app.middleware.logging import RequestLoggingMiddleware
 from app.routes import vocabulary
+
+# Initialize logger
+logger = get_logger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan events."""
+    logger.info("🚀 Starting Language Learning API...")
+    yield
+    logger.info("👋 Shutting down Language Learning API...")
+
 
 app = FastAPI(
     title="Language Learning API",
     description="API for the language learning app - serves vocabulary from Google Sheets",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
+
+
+# Global exception handler - catches ALL unhandled exceptions
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """
+    Global exception handler that logs all unhandled exceptions.
+    Returns a clean error response while logging the full stack trace.
+    """
+    logger.exception(
+        f"Unhandled exception | Path: {request.url.path} | "
+        f"Method: {request.method} | Error: {str(exc)}"
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "An internal server error occurred",
+            "path": str(request.url.path)
+        }
+    )
+
+
+# Add request logging middleware (before CORS)
+app.add_middleware(RequestLoggingMiddleware)
 
 # CORS Configuration
 origins = [
