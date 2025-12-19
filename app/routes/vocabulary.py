@@ -1,6 +1,11 @@
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
+
+from app.core.logging import get_logger
 from app.services.google_sheets import fetch_vocabulary
+
+# Initialize logger
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -61,12 +66,15 @@ def get_vocabulary(
     Get vocabulary words with optional filtering.
     Category can be the original name or a URL-friendly slug.
     """
+    logger.info(f"Fetching vocabulary | level={level}, category={category}, limit={limit}")
     try:
         words = fetch_vocabulary()
+        logger.debug(f"Fetched {len(words)} words from Google Sheets")
         
         # Apply filters
         if level:
             words = [w for w in words if w.get('CEFR Level', '').upper() == level.upper()]
+            logger.debug(f"Filtered by level={level}, remaining: {len(words)} words")
         
         if category:
             # Match both original category name and slug
@@ -78,6 +86,7 @@ def get_vocabulary(
                 return (category_lower in cat.lower()) or (category_lower == cat_slug)
             
             words = [w for w in words if matches_category(w)]
+            logger.debug(f"Filtered by category={category}, remaining: {len(words)} words")
         
         if limit:
             words = words[:limit]
@@ -86,14 +95,17 @@ def get_vocabulary(
         if transform:
             words = [transform_to_flashcard(w) for w in words]
         
+        logger.info(f"Returning {len(words)} words")
         return {
             "count": len(words),
             "words": words
         }
     
     except FileNotFoundError as e:
+        logger.error(f"Credentials not found: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
+        logger.exception(f"Failed to fetch vocabulary | level={level}, category={category}")
         raise HTTPException(status_code=500, detail=f"Error fetching vocabulary: {str(e)}")
 
 
@@ -104,6 +116,7 @@ def get_lesson_words(
     words_per_lesson: int = Query(10, description="Number of words per lesson")
 ):
     """Get words for a specific lesson, optionally filtered by CEFR level."""
+    logger.info(f"Fetching lesson | lesson_id={lesson_id}, level={level}")
     try:
         all_words = fetch_vocabulary()
         
@@ -115,11 +128,13 @@ def get_lesson_words(
         end_idx = start_idx + words_per_lesson
         
         if start_idx >= len(all_words):
+            logger.warning(f"Lesson not found | lesson_id={lesson_id}, total_words={len(all_words)}")
             raise HTTPException(status_code=404, detail="Lesson not found")
         
         lesson_words = all_words[start_idx:end_idx]
         transformed = [transform_to_flashcard(w) for w in lesson_words]
         
+        logger.info(f"Returning lesson {lesson_id} with {len(transformed)} words")
         return {
             "lesson_id": lesson_id,
             "level": level,
@@ -132,6 +147,7 @@ def get_lesson_words(
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception(f"Failed to fetch lesson | lesson_id={lesson_id}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -139,24 +155,30 @@ def get_lesson_words(
 @router.get("/vocabulary/levels")
 def get_available_levels():
     """Get list of available CEFR levels."""
+    logger.info("Fetching available CEFR levels")
     try:
         words = fetch_vocabulary()
         levels = list(set(w.get('CEFR Level', '') for w in words if w.get('CEFR Level')))
         levels.sort()
+        logger.info(f"Found {len(levels)} CEFR levels")
         return {"levels": levels}
     except Exception as e:
+        logger.exception("Failed to fetch CEFR levels")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/vocabulary/categories")
 def get_available_categories():
     """Get list of available categories."""
+    logger.info("Fetching available categories")
     try:
         words = fetch_vocabulary()
         categories = list(set(w.get('Category', '') for w in words if w.get('Category')))
         categories.sort()
+        logger.info(f"Found {len(categories)} categories")
         return {"categories": categories}
     except Exception as e:
+        logger.exception("Failed to fetch categories")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -182,6 +204,7 @@ def get_categories_by_level(
     Get categories grouped by CEFR level with word counts.
     If level is provided, returns categories for that level only.
     """
+    logger.info(f"Fetching categories by level | level={level}")
     try:
         words = fetch_vocabulary()
         
@@ -215,11 +238,13 @@ def get_categories_by_level(
                 "subcategories": sorted(list(category_subcategories[cat_name]))
             })
         
+        logger.info(f"Found {len(categories)} categories for level={level}")
         return {
             "level": level.upper() if level else None,
             "totalCategories": len(categories),
             "categories": categories
         }
     except Exception as e:
+        logger.exception(f"Failed to fetch categories by level | level={level}")
         raise HTTPException(status_code=500, detail=str(e))
 
