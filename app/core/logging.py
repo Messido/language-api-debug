@@ -116,7 +116,7 @@ def get_logger(name: str = None) -> logging.Logger:
         logger = get_logger(__name__)
         logger.info("This is an info message")
     
-    Args:
+    Args:SS
         name: Module name (use __name__)
     
     Returns:

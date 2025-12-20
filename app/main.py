@@ -1,4 +1,3 @@
-import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -53,17 +52,13 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.add_middleware(RequestLoggingMiddleware)
 
 # CORS Configuration
-origins = [
-    "http://localhost:5173",      # Vite dev server
-    "http://localhost:3000",      # Alternative dev port
-]
-
-if vercel_url := os.getenv("VERCEL_URL"):
-    origins.append(vercel_url)
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=[
+        "http://localhost:5173",              # Vite dev server
+        "http://localhost:3000",              # Alternative dev port
+        "https://language-app-rust.vercel.app" # Production Vercel frontend
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

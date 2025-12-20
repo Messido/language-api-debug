@@ -182,6 +182,52 @@ def get_available_categories():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/vocabulary/topics")
+def get_all_topics():
+    """
+    Get all topics (categories) with word counts across all CEFR levels.
+    Returns topics with their slugs, word counts, and subcategories.
+    """
+    logger.info("Fetching all topics")
+    try:
+        words = fetch_vocabulary()
+        
+        # Group by category and count words
+        topic_counts = {}
+        topic_subcategories = {}
+        
+        for word in words:
+            cat = word.get('Category', '')
+            subcat = word.get('Sub Category', '')
+            
+            if cat:
+                if cat not in topic_counts:
+                    topic_counts[cat] = 0
+                    topic_subcategories[cat] = set()
+                topic_counts[cat] += 1
+                if subcat:
+                    topic_subcategories[cat].add(subcat)
+        
+        # Build response
+        topics = []
+        for topic_name, count in sorted(topic_counts.items()):
+            topics.append({
+                "name": topic_name,
+                "slug": slugify(topic_name),
+                "wordCount": count,
+                "subcategories": sorted(list(topic_subcategories[topic_name]))
+            })
+        
+        logger.info(f"Found {len(topics)} topics")
+        return {
+            "totalTopics": len(topics),
+            "topics": topics
+        }
+    except Exception as e:
+        logger.exception("Failed to fetch topics")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 def slugify(text: str) -> str:
     """Convert text to URL-friendly slug."""
     import re
