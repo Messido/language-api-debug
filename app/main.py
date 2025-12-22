@@ -6,7 +6,8 @@ from fastapi.responses import JSONResponse
 
 from app.core.logging import get_logger
 from app.middleware.logging import RequestLoggingMiddleware
-from app.routes import vocabulary
+from app.routes import vocabulary, review_cards
+from app.services.db import connect_to_mongodb, close_mongodb_connection
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -16,7 +17,9 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
     logger.info("🚀 Starting Language Learning API...")
+    await connect_to_mongodb()
     yield
+    await close_mongodb_connection()
     logger.info("👋 Shutting down Language Learning API...")
 
 
@@ -56,6 +59,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",              # Vite dev server
+        "http://localhost:5174",              # Vite alternate port
         "http://localhost:3000",              # Alternative dev port
         "https://language-app-rust.vercel.app" # Production Vercel frontend
     ],
@@ -66,6 +70,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(vocabulary.router, prefix="/api", tags=["vocabulary"])
+app.include_router(review_cards.router, prefix="/api", tags=["review-cards"])
 
 
 @app.get("/")
