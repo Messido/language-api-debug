@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.logging import get_logger
 from app.middleware.logging import RequestLoggingMiddleware
-from app.routes import vocabulary, review_cards
+from app.routes import vocabulary, review_cards, progress
 from app.services.db import connect_to_mongodb, close_mongodb_connection
 
 # Initialize logger
@@ -71,6 +71,7 @@ app.add_middleware(
 # Include routers
 app.include_router(vocabulary.router, prefix="/api", tags=["vocabulary"])
 app.include_router(review_cards.router, prefix="/api", tags=["review-cards"])
+app.include_router(progress.router, prefix="/api", tags=["progress"])
 
 
 @app.get("/")
