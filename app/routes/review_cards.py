@@ -25,6 +25,7 @@ class CardForm(BaseModel):
 
 
 class CardData(BaseModel):
+    id: Optional[str] = ""  # Unique ID from vocabulary source
     english: str
     forms: List[CardForm]
     exampleTarget: str
@@ -202,6 +203,133 @@ async def get_review_count(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Bulk operations for category bookmarking - MUST be defined before {card_id} routes
+class BulkAddRequest(BaseModel):
+    userId: str
+    level: str
+    category: str  # Category slug
+    cards: List[CardData]
+
+
+@router.post("/review-cards/bulk")
+async def bulk_add_review_cards(request: BulkAddRequest):
+    """
+    Bulk add all cards from a category to user's review list.
+    Skips cards that are already bookmarked.
+    """
+    logger.info(f"Bulk adding cards | userId={request.userId}, level={request.level}, category={request.category}, count={len(request.cards)}")
+    
+    try:
+        collection = get_collection("review_cards")
+        added_count = 0
+        skipped_count = 0
+        
+        for card in request.cards:
+            # Use the unique ID from vocabulary, fallback to english word if not available
+            card_id = card.id if card.id else card.english
+            
+            # Check if already exists
+            existing = await collection.find_one({
+                "userId": request.userId,
+                "cardId": card_id
+            })
+            
+            if existing:
+                skipped_count += 1
+                continue
+            
+            # Create new review card document
+            doc = {
+                "userId": request.userId,
+                "cardId": card_id,
+                "markedAt": datetime.utcnow(),
+                "lastReviewedAt": None,
+                "reviewCount": 0,
+                "status": "pending",
+                "cardData": card.model_dump()
+            }
+            
+            await collection.insert_one(doc)
+            added_count += 1
+        
+        logger.info(f"Bulk add complete | added={added_count}, skipped={skipped_count}")
+        return {
+            "message": f"Added {added_count} cards to review",
+            "addedCount": added_count,
+            "skippedCount": skipped_count,
+            "totalProcessed": len(request.cards)
+        }
+        
+    except Exception as e:
+        logger.exception(f"Failed to bulk add cards | userId={request.userId}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/review-cards/bulk")
+async def bulk_remove_review_cards(
+    user_id: str = Query(..., description="User ID from Clerk"),
+    level: str = Query(..., description="CEFR level"),
+    category: str = Query(..., description="Category name")
+):
+    """
+    Bulk remove all cards from a category from user's review list.
+    Matches by cardData.level and cardData.category.
+    """
+    logger.info(f"Bulk removing cards | userId={user_id}, level={level}, category={category}")
+    
+    try:
+        collection = get_collection("review_cards")
+        
+        # Delete all cards matching user, level, and category
+        result = await collection.delete_many({
+            "userId": user_id,
+            "cardData.level": level.upper(),
+            "cardData.category": category
+        })
+        
+        logger.info(f"Bulk remove complete | deleted={result.deleted_count}")
+        return {
+            "message": f"Removed {result.deleted_count} cards from review",
+            "removedCount": result.deleted_count
+        }
+        
+    except Exception as e:
+        logger.exception(f"Failed to bulk remove cards | userId={user_id}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/review-cards/check-category")
+async def check_category_bookmarked(
+    user_id: str = Query(..., description="User ID from Clerk"),
+    level: str = Query(..., description="CEFR level"),
+    category: str = Query(..., description="Category name")
+):
+    """
+    Check if any cards from a specific category are bookmarked.
+    Returns the count of bookmarked cards for that category.
+    """
+    logger.info(f"Checking category bookmark | userId={user_id}, level={level}, category={category}")
+    
+    try:
+        collection = get_collection("review_cards")
+        
+        count = await collection.count_documents({
+            "userId": user_id,
+            "cardData.level": level.upper(),
+            "cardData.category": category
+        })
+        
+        return {
+            "isBookmarked": count > 0,
+            "bookmarkedCount": count
+        }
+        
+    except Exception as e:
+        logger.exception(f"Failed to check category bookmark | userId={user_id}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Routes with path parameters - MUST come after all static routes
 @router.get("/review-cards/check/{card_id}")
 async def check_is_bookmarked(
     card_id: str,
