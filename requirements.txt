@@ -4,3 +4,5 @@ google-api-python-client
 google-auth
 python-dotenv
 motor
+langgraph>=0.2.0
+langchain-groq>=1.0.0
