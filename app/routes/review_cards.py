@@ -25,6 +25,16 @@ class CardForm(BaseModel):
 
 
 class CardData(BaseModel):
+    id: Optional[str] = None
+    english: str
+    forms: List[CardForm]
+    exampleTarget: str
+    exampleNative: str
+    phonetic: str
+    level: str
+    category: str
+    subCategory: Optional[str] = ""
+    image: Optional[str] = ""
 # Bulk operations for category bookmarking - MUST be defined before {card_id} routes
 class BulkAddRequest(BaseModel):
     userId: str
