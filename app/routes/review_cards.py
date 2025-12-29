@@ -202,6 +202,140 @@ async def get_review_count(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Bulk Operations Models
+class BulkCardItem(BaseModel):
+    id: str  # Original vocab ID
+    english: str
+    forms: List[CardForm]
+    exampleTarget: str
+    exampleNative: str
+    phonetic: str
+    level: str
+    category: str
+    subCategory: Optional[str] = ""
+    image: Optional[str] = ""
+
+
+class ReviewCardBulkCreate(BaseModel):
+    userId: str
+    level: str
+    category: str
+    cards: List[BulkCardItem]
+
+
+@router.post("/review-cards/bulk")
+async def bulk_add_review_cards(data: ReviewCardBulkCreate):
+    """
+    Bulk add cards from a category to review list.
+    Skips cards that are already bookmarked.
+    """
+    logger.info(f"Bulk adding cards | userId={data.userId}, count={len(data.cards)}")
+    
+    try:
+        collection = get_collection("review_cards")
+        
+        # Prepare operations
+        added_count = 0
+        timestamp = datetime.utcnow()
+        
+        for card in data.cards:
+            # Check if exists
+            existing = await collection.find_one({
+                "userId": data.userId,
+                "cardId": card.id
+            })
+            
+            if not existing:
+                # Create card data object (excluding id)
+                card_data_dict = card.model_dump(exclude={"id"})
+                
+                doc = {
+                    "userId": data.userId,
+                    "cardId": card.id,
+                    "markedAt": timestamp,
+                    "lastReviewedAt": None,
+                    "reviewCount": 0,
+                    "status": "pending",
+                    "cardData": card_data_dict
+                }
+                
+                await collection.insert_one(doc)
+                added_count += 1
+        
+        logger.info(f"Bulk add complete | added={added_count}, total={len(data.cards)}")
+        return {
+            "message": f"Added {added_count} cards to review",
+            "addedCount": added_count,
+            "totalRequested": len(data.cards)
+        }
+        
+    except Exception as e:
+        logger.exception("Failed to bulk add review cards")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/review-cards/bulk")
+async def bulk_remove_review_cards(
+    user_id: str = Query(..., alias="user_id"),
+    level: str = Query(...),
+    category: str = Query(...)
+):
+    """
+    Bulk remove all review cards for a specific level usage and category.
+    """
+    logger.info(f"Bulk removing cards | userId={user_id}, level={level}, category={category}")
+    
+    try:
+        collection = get_collection("review_cards")
+        
+        # We need to filter by cardData.level and cardData.category
+        # MongoDB dot notation for nested fields
+        result = await collection.delete_many({
+            "userId": user_id,
+            "cardData.level": level,
+            "cardData.category": category
+        })
+        
+        logger.info(f"Bulk remove complete | deleted={result.deleted_count}")
+        return {
+            "message": f"Removed {result.deleted_count} cards from review",
+            "deletedCount": result.deleted_count
+        }
+        
+    except Exception as e:
+        logger.exception("Failed to bulk remove review cards")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/review-cards/check-category")
+async def check_category_bookmarked(
+    user_id: str = Query(..., alias="user_id"),
+    level: str = Query(...),
+    category: str = Query(...)
+):
+    """
+    Check if a category is bookmarked (has any cards in review)
+    and return the count of bookmarked cards in this category.
+    """
+    try:
+        collection = get_collection("review_cards")
+        
+        count = await collection.count_documents({
+            "userId": user_id,
+            "cardData.level": level,
+            "cardData.category": category
+        })
+        
+        return {
+            "isBookmarked": count > 0,
+            "bookmarkedCount": count
+        }
+        
+    except Exception as e:
+        logger.exception("Failed to check category bookmark")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/review-cards/check/{card_id}")
 async def check_is_bookmarked(
     card_id: str,
@@ -254,47 +388,6 @@ async def remove_review_card(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.patch("/review-cards/{card_id}/status")
-async def update_review_status(
-    card_id: str,
-    user_id: str = Query(..., description="User ID from Clerk"),
-    status: str = Query(..., description="New status: pending, reviewed, mastered")
-):
-    """Update the review status of a card."""
-    logger.info(f"Updating review status | userId={user_id}, cardId={card_id}, status={status}")
-    
-    valid_statuses = ["pending", "reviewed", "mastered"]
-    if status not in valid_statuses:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Invalid status. Must be one of: {valid_statuses}"
-        )
-    
-    try:
-        collection = get_collection("review_cards")
-        
-        update_data = {
-            "status": status,
-            "lastReviewedAt": datetime.utcnow()
-        }
-        
-        # Increment review count if marking as reviewed
-        if status in ["reviewed", "mastered"]:
-            result = await collection.find_one_and_update(
-                {"userId": user_id, "cardId": card_id},
-                {
-                    "$set": update_data,
-                    "$inc": {"reviewCount": 1}
-                },
-                return_document=True
-            )
-        else:
-            result = await collection.find_one_and_update(
-                {"userId": user_id, "cardId": card_id},
-                {"$set": update_data},
-                return_document=True
-            )
-        
         if not result:
             raise HTTPException(status_code=404, detail="Card not found in review list")
         
@@ -309,3 +402,6 @@ async def update_review_status(
     except Exception as e:
         logger.exception(f"Failed to update status | cardId={card_id}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
