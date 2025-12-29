@@ -25,6 +25,7 @@ class CardForm(BaseModel):
 
 
 class CardData(BaseModel):
+    id: Optional[str] = None  # Added for unique ID tracking
     english: str
     forms: List[CardForm]
     exampleTarget: str
@@ -388,6 +389,43 @@ async def remove_review_card(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.patch("/review-cards/{card_id}")
+async def update_review_card(
+    card_id: str,
+    update: ReviewCardUpdate,
+    user_id: str = Query(..., description="User ID from Clerk")
+):
+    """Update a review card's status."""
+    logger.info(f"Updating review card | userId={user_id}, cardId={card_id}, update={update}")
+    
+    try:
+        collection = get_collection("review_cards")
+        
+        # Prepare update data
+        update_doc = {}
+        if update.status:
+            update_doc["status"] = update.status
+        if update.lastReviewedAt:
+            update_doc["lastReviewedAt"] = update.lastReviewedAt
+            
+        if not update_doc:
+            raise HTTPException(status_code=400, detail="No fields provided to update")
+            
+        # Perform update
+        result = await collection.find_one_and_update(
+            {
+                "userId": user_id,
+                "cardId": card_id
+            },
+            {
+                "$set": update_doc,
+                "$inc": {"reviewCount": 1} if update.lastReviewedAt else {}
+            },
+            return_document=True
+        )
+        
+        status = update.status if update.status else "unchanged"
+
         if not result:
             raise HTTPException(status_code=404, detail="Card not found in review list")
         
@@ -402,6 +440,3 @@ async def remove_review_card(
     except Exception as e:
         logger.exception(f"Failed to update status | cardId={card_id}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-
