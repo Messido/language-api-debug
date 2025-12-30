@@ -244,6 +244,37 @@ async def reset_lesson_progress(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.delete("/progress/card")
+async def delete_learned_card(
+    user_id: str = Query(..., description="User ID from Clerk"),
+    card_id: str = Query(..., description="Card ID to remove")
+):
+    """
+    Remove a single learned card from user's progress.
+    """
+    logger.info(f"Removing learned card | userId={user_id}, cardId={card_id}")
+    
+    try:
+        collection = get_collection("learned_cards")
+        
+        result = await collection.delete_one({
+            "userId": user_id,
+            "cardId": card_id
+        })
+        
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Card not found in learned list")
+            
+        logger.info(f"Learned card removed | cardId={card_id}")
+        return {"message": "Card removed from learned list"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to remove learned card | cardId={card_id}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/progress/count")
 async def get_total_learned_count(
     user_id: str = Query(..., description="User ID from Clerk")

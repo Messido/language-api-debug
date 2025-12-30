@@ -5,7 +5,7 @@ import re
 
 from app.core.logging import get_logger
 from app.services.google_sheets import fetch_ai_practice_topics
-from app.services.langgraph_chat import chat, generate_initial_greeting
+from app.services.langgraph_chat import chat, generate_initial_greeting, translate_text
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -275,3 +275,35 @@ async def get_initial_greeting(request: InitialGreetingRequest):
     except Exception as e:
         logger.exception("Failed to generate initial greeting")
         raise HTTPException(status_code=500, detail=f"Greeting error: {str(e)}")
+
+
+class TranslationRequest(BaseModel):
+    """Request body for translation endpoint."""
+    text: str
+    target_lang: str = "en"
+
+
+class TranslationResponse(BaseModel):
+    """Response from translation endpoint."""
+    text: str
+    translation: str
+
+
+@router.post("/ai-practice/translate", response_model=TranslationResponse)
+async def translate_text_endpoint(request: TranslationRequest):
+    """
+    Translate text using the AI model.
+    """
+    logger.info(f"Translation request | text_len={len(request.text)} | target={request.target_lang}")
+    
+    try:
+        translation = translate_text(request.text, request.target_lang)
+        
+        return TranslationResponse(
+            text=request.text,
+            translation=translation
+        )
+        
+    except Exception as e:
+        logger.exception("Failed to translate text")
+        raise HTTPException(status_code=500, detail=f"Translation error: {str(e)}")
