@@ -7,7 +7,7 @@ responses based on user level, formality, and scenario.
 """
 
 import os
-from typing import TypedDict, Optional
+from typing import TypedDict, Optional, Dict
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -247,3 +247,33 @@ def chat(
         "correction": result.get("correction"),
         "conversation_history": new_history,
     }
+
+def translate_text(text: str, target_lang: str = "en") -> str:
+    """
+    Translate text using the LLM.
+    
+    Args:
+        text (str): Text to translate
+        target_lang (str): Target language code (default: 'en')
+        
+    Returns:
+        str: Translated text
+    """
+    try:
+        model = get_groq_model()
+        
+        prompt = f"""Translate the following French text to English. Provide ONLY the translation, no other text or explanations.
+        
+Text: {text}
+Translation:"""
+        
+        response = model.invoke([
+            SystemMessage(content="You are a precise translator. Translate exactly what is given."),
+            HumanMessage(content=prompt)
+        ])
+        
+        return response.content.strip()
+        
+    except Exception as e:
+        logger.exception(f"Translation failed: {str(e)}")
+        return "Translation unavailable"
