@@ -59,14 +59,16 @@ def transform_to_flashcard(word: dict) -> dict:
 def get_vocabulary(
     level: Optional[str] = Query(None, description="CEFR level (A1, A2, B1, B2, C1)"),
     category: Optional[str] = Query(None, description="Category name or slug"),
+    sub_category: Optional[list[str]] = Query(None, description="List of sub-categories to filter by"),
     limit: Optional[int] = Query(None, description="Maximum number of words"),
     transform: bool = Query(True, description="Transform to flashcard format")
 ):
     """
     Get vocabulary words with optional filtering.
     Category can be the original name or a URL-friendly slug.
+    Sub-category can be a list of values.
     """
-    logger.info(f"Fetching vocabulary | level={level}, category={category}, limit={limit}")
+    logger.info(f"Fetching vocabulary | level={level}, category={category}, sub_category={sub_category}, limit={limit}")
     try:
         words = fetch_vocabulary()
         logger.debug(f"Fetched {len(words)} words from Google Sheets")
@@ -87,6 +89,13 @@ def get_vocabulary(
             
             words = [w for w in words if matches_category(w)]
             logger.debug(f"Filtered by category={category}, remaining: {len(words)} words")
+        
+        if sub_category:
+            # Filter words where 'Sub Category' is in the provided list
+            # Case-insensitive comparison could be safer, but let's try exact first or simple lower
+            sub_cats_lower = [sc.lower() for sc in sub_category]
+            words = [w for w in words if w.get('Sub Category', '').lower() in sub_cats_lower]
+            logger.debug(f"Filtered by sub_category={sub_category}, remaining: {len(words)} words")
         
         if limit:
             words = words[:limit]
