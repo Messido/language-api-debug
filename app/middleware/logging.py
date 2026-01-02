@@ -29,7 +29,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         
         # Log incoming request
         logger.info(
-            f"→ {request.method} {request.url.path}"
+            f"> {request.method} {request.url.path}"
             f"{('?' + str(request.query_params)) if request.query_params else ''}"
             f" | Client: {client_ip}"
         )
@@ -41,7 +41,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             # Calculate duration even on error
             duration_ms = (time.time() - start_time) * 1000
             logger.error(
-                f"✗ {request.method} {request.url.path} | "
+                f"[ERR] {request.method} {request.url.path} | "
                 f"Exception after {duration_ms:.2f}ms: {str(e)}"
             )
             raise
@@ -50,11 +50,11 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         duration_ms = (time.time() - start_time) * 1000
         
         # Log response
-        status_emoji = "✓" if response.status_code < 400 else "✗"
+        status_indicator = "[OK]" if response.status_code < 400 else "[ERR]"
         log_method = logger.info if response.status_code < 400 else logger.warning
         
         log_method(
-            f"{status_emoji} {request.method} {request.url.path} | "
+            f"{status_indicator} {request.method} {request.url.path} | "
             f"Status: {response.status_code} | Duration: {duration_ms:.2f}ms"
         )
         

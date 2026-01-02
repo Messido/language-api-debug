@@ -35,7 +35,7 @@ async def connect_to_mongodb():
         
         # Verify connection by pinging the server
         await mongodb.client.admin.command('ping')
-        logger.info(f"📦 Connected to MongoDB database: {database_name}")
+        logger.info(f"Connected to MongoDB database: {database_name}")
         
     except Exception as e:
         logger.exception(f"Failed to connect to MongoDB: {str(e)}")
