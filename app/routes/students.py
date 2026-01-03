@@ -24,6 +24,7 @@ class ExamIntent(BaseModel):
 
 class StudentProfileCreate(BaseModel):
     clerkUserId: str
+    name: Optional[str] = None
     targetLanguage: str
     instructionLanguage: str
     purpose: List[str]
@@ -35,6 +36,7 @@ class StudentProfileResponse(BaseModel):
     id: str  # MongoDB _id
     clerkUserId: str
     studentId: str  # S-123456
+    name: Optional[str] = None
     targetLanguage: str
     instructionLanguage: str
     purpose: List[str]
@@ -64,6 +66,7 @@ def doc_to_response(doc: dict) -> dict:
         "id": str(doc["_id"]),
         "clerkUserId": doc["clerkUserId"],
         "studentId": doc["studentId"],
+        "name": doc.get("name"),
         "targetLanguage": doc["targetLanguage"],
         "instructionLanguage": doc["instructionLanguage"],
         "purpose": doc["purpose"],
@@ -102,6 +105,7 @@ async def create_student_profile(profile: StudentProfileCreate):
         doc = {
             "clerkUserId": profile.clerkUserId,
             "studentId": student_id,
+            "name": profile.name,
             "targetLanguage": profile.targetLanguage,
             "instructionLanguage": profile.instructionLanguage,
             "purpose": profile.purpose,
