@@ -39,6 +39,7 @@ class CardData(BaseModel):
 class LearnedCard(BaseModel):
     cardId: str
     cardData: CardData
+    status: str = "known"  # known, unknown, mastered
 
 
 class SaveProgressRequest(BaseModel):
@@ -57,6 +58,7 @@ def doc_to_response(doc: dict) -> dict:
         "cardId": doc["cardId"],
         "level": doc["level"],
         "category": doc["category"],
+        "status": doc.get("status", "known"),
         "learnedAt": doc["learnedAt"],
         "lastViewedAt": doc.get("lastViewedAt"),
         "cardData": doc["cardData"]
@@ -90,6 +92,7 @@ async def save_progress(request: SaveProgressRequest):
                     "$set": {
                         "level": request.level,
                         "category": request.category,
+                        "status": card.status,
                         "lastViewedAt": now,
                         "cardData": card.cardData.model_dump()
                     },
@@ -290,4 +293,75 @@ async def get_total_learned_count(
         
     except Exception as e:
         logger.exception(f"Failed to get count")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/progress/stats")
+async def get_progress_stats(
+    user_id: str = Query(..., description="User ID from Clerk"),
+    level: Optional[str] = Query(None, description="Filter by CEFR level"),
+    category: Optional[str] = Query(None, description="Filter by Category"),
+    sub_category: Optional[List[str]] = Query(None, description="Filter by SubCategories")
+):
+    """
+    Get progress statistics (counts by status).
+    """
+    logger.info(f"Getting progress stats | userId={user_id}, level={level}, category={category}")
+    
+    try:
+        collection = get_collection("learned_cards")
+        
+        # Build query
+        query = {"userId": user_id}
+        if level and level != "All":
+            query["level"] = level.upper()
+        if category:
+            query["category"] = category
+            
+        # Note: sub_category filtering in the DB depends on if we save subCategory in the cardData or top level.
+        # Currently we save cardData.subCategory but query top level fields.
+        # We might need to query 'cardData.subCategory'.
+        if sub_category:
+            # Case insensitive match for subcategories is harder in plain mongo find without regex or specific collation.
+            # Let's assume exact match for now or use $in
+             query["cardData.subCategory"] = {"$in": sub_category}
+        
+        # Aggregate counts by status
+        pipeline = [
+            {"$match": query},
+            {"$group": {
+                "_id": "$status",
+                "count": {"$sum": 1}
+            }}
+        ]
+        
+        results = await collection.aggregate(pipeline).to_list(length=None)
+        
+        stats = {
+            "known": 0,
+            "unknown": 0,
+            "mastered": 0,
+            "total": 0
+        }
+        
+        for r in results:
+            status = r["_id"]
+            count = r["count"]
+            if status in stats:
+                stats[status] = count
+            # Map 'know' -> 'known' if inconsistent naming
+            if status == "know": stats["known"] += count
+            if status == "dont_know": stats["unknown"] += count
+            
+        stats["total"] = sum(stats.values())
+        
+        # Mocking or Calculating 'Untested' requires knowing the Total Possible cards.
+        # That's hard without fetching all cards. 
+        # For now, we return what we have tracked. The frontend can calculate 'Untested' 
+        # if it knows the total count from the Vocabulary API.
+        
+        return stats
+        
+    except Exception as e:
+        logger.exception(f"Failed to get progress stats")
         raise HTTPException(status_code=500, detail=str(e))

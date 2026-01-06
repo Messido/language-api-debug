@@ -25,6 +25,7 @@ class TeacherExperience(BaseModel):
 
 class TeacherProfileCreate(BaseModel):
     clerkUserId: str
+    name: Optional[str] = None
     teachingLanguages: List[str]
     instructionLanguage: str
     experience: TeacherExperience
@@ -33,6 +34,7 @@ class TeacherProfileResponse(BaseModel):
     id: str  # MongoDB _id
     clerkUserId: str
     teacherId: str  # T-123456
+    name: Optional[str] = None
     teachingLanguages: List[str]
     instructionLanguage: str
     experience: TeacherExperience
@@ -59,6 +61,7 @@ def doc_to_response(doc: dict) -> dict:
         "id": str(doc["_id"]),
         "clerkUserId": doc["clerkUserId"],
         "teacherId": doc["teacherId"],
+        "name": doc.get("name"),
         "teachingLanguages": doc["teachingLanguages"],
         "instructionLanguage": doc["instructionLanguage"],
         "experience": doc["experience"],
@@ -93,6 +96,7 @@ async def create_teacher_profile(profile: TeacherProfileCreate):
         doc = {
             "clerkUserId": profile.clerkUserId,
             "teacherId": teacher_id,
+            "name": profile.name,
             "teachingLanguages": profile.teachingLanguages,
             "instructionLanguage": profile.instructionLanguage,
             "experience": profile.experience.model_dump(),
@@ -162,4 +166,23 @@ async def check_teacher_onboarding(
 
     except Exception as e:
         logger.exception(f"Failed to check teacher onboarding | userId={user_id}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/teachers", response_model=List[TeacherProfileResponse])
+async def list_teachers(
+    limit: int = 20, 
+    skip: int = 0
+):
+    """
+    List all teachers (simple discovery).
+    """
+    try:
+        collection = get_collection("teachers")
+        cursor = collection.find({}).skip(skip).limit(limit)
+        teachers = await cursor.to_list(length=limit)
+        
+        return [doc_to_response(t) for t in teachers]
+    except Exception as e:
+        logger.exception("Failed to list teachers")
         raise HTTPException(status_code=500, detail=str(e))

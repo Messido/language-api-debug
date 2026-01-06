@@ -3,6 +3,7 @@ Student-Teacher Relationship API endpoints.
 Handles linking students to teachers and retrieving connected users.
 """
 
+# ... (imports)
 from fastapi import APIRouter, HTTPException, Query, Body, Request
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -22,6 +23,9 @@ class LinkRequest(BaseModel):
     studentId: str  # S-123456
     teacherId: str  # T-123456
 
+class RelationshipStatusUpdate(BaseModel):
+    status: str  # active, rejected
+
 class RelationshipResponse(BaseModel):
     id: str
     studentId: str
@@ -29,20 +33,24 @@ class RelationshipResponse(BaseModel):
     studentClerkId: str
     teacherClerkId: str
     createdAt: datetime
-    status: str = "active"  # active, archived
+    status: str = "active"  # pending, active, rejected, archived
 
 class ConnectedStudent(BaseModel):
+    id: str # Relationship ID
     studentId: str
     clerkUserId: str
     name: Optional[str] = None # In a real app, we'd fetch this from Clerk or Student Profile
     level: Optional[str] = None
     createdAt: datetime
+    status: str
 
 class ConnectedTeacher(BaseModel):
+    id: str # Relationship ID
     teacherId: str
     clerkUserId: str
     name: Optional[str] = None
     createdAt: datetime
+    status: str
 
 # --- Helper Functions ---
 
@@ -54,7 +62,7 @@ def doc_to_response(doc: dict) -> dict:
         "studentClerkId": doc["studentClerkId"],
         "teacherClerkId": doc["teacherClerkId"],
         "createdAt": doc["createdAt"],
-        "status": doc.get("status", "active")
+        "status": doc.get("status", "pending")
     }
 
 # --- Routes ---
@@ -62,9 +70,10 @@ def doc_to_response(doc: dict) -> dict:
 @router.post("/relationships/link", response_model=RelationshipResponse)
 async def link_student_teacher(link_data: LinkRequest):
     """
-    Link a student to a teacher using their IDs.
+    Send a connection request from a student to a teacher.
+    Status starts as 'pending'.
     """
-    logger.info(f"Linking student {link_data.studentId} to teacher {link_data.teacherId}")
+    logger.info(f"Requesting link: student {link_data.studentId} -> teacher {link_data.teacherId}")
 
     try:
         students_coll = get_collection("students")
@@ -87,43 +96,87 @@ async def link_student_teacher(link_data: LinkRequest):
             "teacherId": link_data.teacherId
         })
         if existing:
+            # If rejected, allow re-requesting? For now, just return existing
             return doc_to_response(existing)
 
-        # 4. Create Link
+        # 4. Create Link (Pending)
         doc = {
             "studentId": link_data.studentId,
             "teacherId": link_data.teacherId,
             "studentClerkId": student["clerkUserId"],
             "teacherClerkId": teacher["clerkUserId"],
             "createdAt": datetime.utcnow(),
-            "status": "active"
+            "status": "pending" 
         }
 
         result = await relationships_coll.insert_one(doc)
         doc["_id"] = result.inserted_id
 
-        logger.info(f"Link created: {link_data.studentId} -> {link_data.teacherId}")
+        logger.info(f"Link request created: {link_data.studentId} -> {link_data.teacherId}")
         return doc_to_response(doc)
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Failed to link student and teacher")
+        logger.exception("Failed to create link request")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.put("/relationships/{relationship_id}/status", response_model=RelationshipResponse)
+async def update_relationship_status(relationship_id: str, update: RelationshipStatusUpdate):
+    """
+    Update relationship status (e.g., approve 'active' or reject 'rejected').
+    """
+    logger.info(f"Updating relationship {relationship_id} status to {update.status}")
+
+    try:
+        relationships_coll = get_collection("relationships")
+        
+        if not ObjectId.is_valid(relationship_id):
+             raise HTTPException(status_code=400, detail="Invalid relationship ID")
+
+        result = await relationships_coll.find_one_and_update(
+            {"_id": ObjectId(relationship_id)},
+            {"$set": {"status": update.status}},
+            return_document=True
+        )
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Relationship not found")
+
+        return doc_to_response(result)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to update relationship {relationship_id}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/relationships/teacher/{teacher_id}/students", response_model=List[ConnectedStudent])
-async def get_teacher_students(teacher_id: str):
+async def get_teacher_students(
+    teacher_id: str,
+    status: Optional[str] = Query(None, description="Filter by status (active, pending)")
+):
     """
-    Get all students linked to a specific teacher.
-    Also fetches basic student details (level, etc.)
+    Get students linked to a specific teacher.
     """
     try:
         relationships_coll = get_collection("relationships")
         students_coll = get_collection("students")
         
-        # Find all active relationships for this teacher
-        cursor = relationships_coll.find({"teacherId": teacher_id, "status": "active"})
+        query = {"teacherId": teacher_id}
+        if status:
+            query["status"] = status
+        else:
+            # Default to showing all non-archived? Or just active? 
+            # Let's show all if no status specified, or maybe just active.
+            # For backward compatibility, if no status, maybe return active.
+            # But for dashboard, we might want to see requests.
+            # Let's filter by active if not specified to match previous behavior, 
+            # but actually the UI might need to request 'pending'.
+            pass
+
+        cursor = relationships_coll.find(query)
         relationships = await cursor.to_list(length=None)
         
         if not relationships:
@@ -131,24 +184,25 @@ async def get_teacher_students(teacher_id: str):
             
         student_ids = [r["studentId"] for r in relationships]
         
-        # Fetch student profiles
-        # In a real app, we might do an aggregation lookup, but two queries is fine for MVP
         students_cursor = students_coll.find({"studentId": {"$in": student_ids}})
         students = await students_cursor.to_list(length=None)
         
-        # Map to response
-        # Create a lookup map for relationship creation time
-        rel_map = {r["studentId"]: r["createdAt"] for r in relationships}
-        
+        # Map students by ID for easy lookup
+        student_map = {s["studentId"]: s for s in students}
+
         result = []
-        for s in students:
-            result.append({
-                "studentId": s["studentId"],
-                "clerkUserId": s["clerkUserId"],
-                "name": s.get("name") or "Student",
-                "level": s.get("level"),
-                "createdAt": rel_map.get(s["studentId"], datetime.utcnow())
-            })
+        for r in relationships:
+            s = student_map.get(r["studentId"])
+            if s:
+                result.append({
+                    "id": str(r["_id"]),
+                    "studentId": s["studentId"],
+                    "clerkUserId": s["clerkUserId"],
+                    "name": s.get("name") or "Student",
+                    "level": s.get("level"),
+                    "createdAt": r["createdAt"],
+                    "status": r.get("status", "active")
+                })
             
         return result
 
@@ -157,15 +211,22 @@ async def get_teacher_students(teacher_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/relationships/student/{student_id}/teachers", response_model=List[ConnectedTeacher])
-async def get_student_teachers(student_id: str):
+async def get_student_teachers(
+    student_id: str,
+    status: Optional[str] = Query(None, description="Filter by status (active, pending)")
+):
     """
-    Get all teachers linked to a specific student.
+    Get teachers linked to a specific student.
     """
     try:
         relationships_coll = get_collection("relationships")
         teachers_coll = get_collection("teachers")
         
-        cursor = relationships_coll.find({"studentId": student_id, "status": "active"})
+        query = {"studentId": student_id}
+        if status:
+            query["status"] = status
+        
+        cursor = relationships_coll.find(query)
         relationships = await cursor.to_list(length=None)
         
         if not relationships:
@@ -176,16 +237,20 @@ async def get_student_teachers(student_id: str):
         teachers_cursor = teachers_coll.find({"teacherId": {"$in": teacher_ids}})
         teachers = await teachers_cursor.to_list(length=None)
         
-        rel_map = {r["teacherId"]: r["createdAt"] for r in relationships}
+        teacher_map = {t["teacherId"]: t for t in teachers}
         
         result = []
-        for t in teachers:
-            result.append({
-                "teacherId": t["teacherId"],
-                "clerkUserId": t["clerkUserId"],
-                "name": "Teacher", 
-                "createdAt": rel_map.get(t["teacherId"], datetime.utcnow())
-            })
+        for r in relationships:
+            t = teacher_map.get(r["teacherId"])
+            if t:
+                result.append({
+                    "id": str(r["_id"]),
+                    "teacherId": t["teacherId"],
+                    "clerkUserId": t["clerkUserId"],
+                    "name": "Teacher", # teachers don't have name field in previous file, assuming same pattern
+                    "createdAt": r["createdAt"],
+                    "status": r.get("status", "active")
+                })
             
         return result
 
