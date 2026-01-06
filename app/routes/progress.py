@@ -3,13 +3,14 @@ Progress Tracking API endpoints.
 Handles saving/retrieving learned cards for user progress.
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
 
 from app.core.logging import get_logger
 from app.services.db import get_collection
+from app.core.auth import get_current_user_id
 
 logger = get_logger(__name__)
 
@@ -66,13 +67,18 @@ def doc_to_response(doc: dict) -> dict:
 
 
 @router.post("/progress/save")
-async def save_progress(request: SaveProgressRequest):
+async def save_progress(
+    request: SaveProgressRequest,
+    user_id: str = Depends(get_current_user_id)
+):
     """
     Batch save learned cards. Uses upsert to avoid duplicates.
     Cards already learned will have their lastViewedAt updated.
     """
-    logger.info(f"Saving progress | userId={request.userId}, level={request.level}, "
-                f"category={request.category}, cardCount={len(request.cards)}")
+    logger.info(f"Saving progress | userId={user_id}, count={len(request.cards)}")
+
+    if request.userId != user_id:
+        request.userId = user_id
     
     try:
         collection = get_collection("learned_cards")
@@ -123,9 +129,9 @@ async def save_progress(request: SaveProgressRequest):
 
 @router.get("/progress/lesson")
 async def get_lesson_progress(
-    user_id: str = Query(..., description="User ID from Clerk"),
     level: str = Query(..., description="CEFR level"),
-    category: str = Query(..., description="Category slug")
+    category: str = Query(..., description="Category slug"),
+    user_id: str = Depends(get_current_user_id)
 ):
     """
     Get progress for a specific lesson.
@@ -170,7 +176,7 @@ async def get_lesson_progress(
 
 @router.get("/progress/wordlist")
 async def get_wordlist(
-    user_id: str = Query(..., description="User ID from Clerk"),
+    user_id: str = Depends(get_current_user_id),
     limit: int = Query(50, le=100, description="Max cards to return"),
     cursor: Optional[str] = Query(None, description="Cursor for pagination (ISO timestamp)")
 ):
@@ -217,9 +223,9 @@ async def get_wordlist(
 
 @router.delete("/progress/lesson")
 async def reset_lesson_progress(
-    user_id: str = Query(..., description="User ID from Clerk"),
     level: str = Query(..., description="CEFR level"),
-    category: str = Query(..., description="Category slug")
+    category: str = Query(..., description="Category slug"),
+    user_id: str = Depends(get_current_user_id)
 ):
     """
     Reset progress for a specific lesson.
@@ -249,8 +255,8 @@ async def reset_lesson_progress(
 
 @router.delete("/progress/card")
 async def delete_learned_card(
-    user_id: str = Query(..., description="User ID from Clerk"),
-    card_id: str = Query(..., description="Card ID to remove")
+    card_id: str = Query(..., description="Card ID to remove"),
+    user_id: str = Depends(get_current_user_id)
 ):
     """
     Remove a single learned card from user's progress.
@@ -280,7 +286,7 @@ async def delete_learned_card(
 
 @router.get("/progress/count")
 async def get_total_learned_count(
-    user_id: str = Query(..., description="User ID from Clerk")
+    user_id: str = Depends(get_current_user_id)
 ):
     """Get total count of learned cards for user."""
     logger.info(f"Getting total learned count | userId={user_id}")
@@ -298,7 +304,7 @@ async def get_total_learned_count(
 
 @router.get("/progress/stats")
 async def get_progress_stats(
-    user_id: str = Query(..., description="User ID from Clerk"),
+    user_id: str = Depends(get_current_user_id),
     level: Optional[str] = Query(None, description="Filter by CEFR level"),
     category: Optional[str] = Query(None, description="Filter by Category"),
     sub_category: Optional[List[str]] = Query(None, description="Filter by SubCategories")

@@ -12,6 +12,8 @@ from bson import ObjectId
 
 from app.core.logging import get_logger
 from app.services.db import get_collection
+from app.core.auth import get_current_user_id
+from fastapi import Depends
 
 logger = get_logger(__name__)
 
@@ -68,7 +70,10 @@ def doc_to_response(doc: dict) -> dict:
 # --- Routes ---
 
 @router.post("/relationships/link", response_model=RelationshipResponse)
-async def link_student_teacher(link_data: LinkRequest):
+async def link_student_teacher(
+    link_data: LinkRequest,
+    user_id: str = Depends(get_current_user_id)
+):
     """
     Send a connection request from a student to a teacher.
     Status starts as 'pending'.
@@ -84,6 +89,10 @@ async def link_student_teacher(link_data: LinkRequest):
         student = await students_coll.find_one({"studentId": link_data.studentId})
         if not student:
             raise HTTPException(status_code=404, detail="Student ID not found")
+        
+        # Verify ownership
+        if student.get("clerkUserId") != user_id:
+             raise HTTPException(status_code=403, detail="Not authorized to link this student")
 
         # 2. Verify Teacher exists
         teacher = await teachers_coll.find_one({"teacherId": link_data.teacherId})
@@ -122,7 +131,11 @@ async def link_student_teacher(link_data: LinkRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/relationships/{relationship_id}/status", response_model=RelationshipResponse)
-async def update_relationship_status(relationship_id: str, update: RelationshipStatusUpdate):
+async def update_relationship_status(
+    relationship_id: str, 
+    update: RelationshipStatusUpdate,
+    user_id: str = Depends(get_current_user_id)
+):
     """
     Update relationship status (e.g., approve 'active' or reject 'rejected').
     """
@@ -133,6 +146,18 @@ async def update_relationship_status(relationship_id: str, update: RelationshipS
         
         if not ObjectId.is_valid(relationship_id):
              raise HTTPException(status_code=400, detail="Invalid relationship ID")
+
+        # Verify ownership (Teacher only for approval/rejection typically)
+        # We need to fetch the relationship first to check ownership
+        relationship = await relationships_coll.find_one({"_id": ObjectId(relationship_id)})
+        if not relationship:
+            raise HTTPException(status_code=404, detail="Relationship not found")
+
+        # Verify teacher ownership
+        # Fetch teacher profile to compare? Or just check teacherClerkId in relationship if we stored it?
+        # We stored 'teacherClerkId' in link_student_teacher
+        if relationship.get("teacherClerkId") != user_id:
+             raise HTTPException(status_code=403, detail="Not authorized to update this relationship")
 
         result = await relationships_coll.find_one_and_update(
             {"_id": ObjectId(relationship_id)},
@@ -151,11 +176,54 @@ async def update_relationship_status(relationship_id: str, update: RelationshipS
         logger.exception(f"Failed to update relationship {relationship_id}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.delete("/relationships/{relationship_id}", status_code=204)
+async def delete_relationship(
+    relationship_id: str,
+    user_id: str = Depends(get_current_user_id)
+):
+    """
+    Remove a relationship (cancel request or remove connection).
+    Can be performed by user involved in the relationship.
+    """
+    logger.info(f"Deleting relationship {relationship_id} by user {user_id}")
+    
+    try:
+        relationships_coll = get_collection("relationships")
+        
+        if not ObjectId.is_valid(relationship_id):
+             raise HTTPException(status_code=400, detail="Invalid relationship ID")
+
+        # Verify existence and ownership
+        relationship = await relationships_coll.find_one({"_id": ObjectId(relationship_id)})
+        
+        if not relationship:
+            # Idempotent: if already gone, just return 204
+            return
+
+        # Check if user is either the student or the teacher involved
+        if relationship.get("studentClerkId") != user_id and relationship.get("teacherClerkId") != user_id:
+             raise HTTPException(status_code=403, detail="Not authorized to delete this relationship")
+        
+        result = await relationships_coll.delete_one({"_id": ObjectId(relationship_id)})
+        
+        if result.deleted_count == 0:
+            # Should not happen given logic above, but safety check
+            raise HTTPException(status_code=404, detail="Relationship not found during deletion")
+
+        return 
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Failed to delete relationship {relationship_id}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/relationships/teacher/{teacher_id}/students", response_model=List[ConnectedStudent])
 async def get_teacher_students(
     teacher_id: str,
-    status: Optional[str] = Query(None, description="Filter by status (active, pending)")
+    status: Optional[str] = Query(None, description="Filter by status (active, pending)"),
+    user_id: str = Depends(get_current_user_id)
 ):
     """
     Get students linked to a specific teacher.
@@ -164,6 +232,14 @@ async def get_teacher_students(
         relationships_coll = get_collection("relationships")
         students_coll = get_collection("students")
         
+        # Verify ownership
+        teacher = await get_collection("teachers").find_one({"teacherId": teacher_id})
+        if not teacher:
+             raise HTTPException(status_code=404, detail="Teacher not found")
+        
+        if teacher.get("clerkUserId") != user_id:
+             raise HTTPException(status_code=403, detail="Not authorized to view these students")
+
         query = {"teacherId": teacher_id}
         if status:
             query["status"] = status
@@ -213,7 +289,8 @@ async def get_teacher_students(
 @router.get("/relationships/student/{student_id}/teachers", response_model=List[ConnectedTeacher])
 async def get_student_teachers(
     student_id: str,
-    status: Optional[str] = Query(None, description="Filter by status (active, pending)")
+    status: Optional[str] = Query(None, description="Filter by status (active, pending)"),
+    user_id: str = Depends(get_current_user_id)
 ):
     """
     Get teachers linked to a specific student.
@@ -222,6 +299,14 @@ async def get_student_teachers(
         relationships_coll = get_collection("relationships")
         teachers_coll = get_collection("teachers")
         
+        # Verify ownership
+        student = await get_collection("students").find_one({"studentId": student_id})
+        if not student:
+             raise HTTPException(status_code=404, detail="Student not found")
+        
+        if student.get("clerkUserId") != user_id:
+             raise HTTPException(status_code=403, detail="Not authorized to view these teachers")
+
         query = {"studentId": student_id}
         if status:
             query["status"] = status

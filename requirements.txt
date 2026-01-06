@@ -6,3 +6,5 @@ python-dotenv
 motor
 langgraph>=0.2.0
 langchain-groq>=1.0.0
+pyjwt
+cryptography

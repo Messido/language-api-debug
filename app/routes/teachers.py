@@ -3,7 +3,7 @@ Teacher Profile API endpoints.
 Handles creation and retrieval of teacher profiles.
 """
 
-from fastapi import APIRouter, HTTPException, Query, Body, Request
+from fastapi import APIRouter, HTTPException, Query, Body, Request, Depends
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -11,6 +11,7 @@ import random
 
 from app.core.logging import get_logger
 from app.services.db import get_collection
+from app.core.auth import get_current_user_id
 
 logger = get_logger(__name__)
 
@@ -73,12 +74,20 @@ def doc_to_response(doc: dict) -> dict:
 # --- Routes ---
 
 @router.post("/teachers", response_model=TeacherProfileResponse)
-async def create_teacher_profile(profile: TeacherProfileCreate):
+async def create_teacher_profile(
+    profile: TeacherProfileCreate,
+    user_id: str = Depends(get_current_user_id)
+):
     """
     Create a new teacher profile after onboarding.
     Auto-generates a Teacher ID (T-xxxxxx).
     """
-    logger.info(f"Creating teacher profile | userId={profile.clerkUserId}")
+    logger.info(f"Creating teacher profile | userId={user_id}")
+
+    # Enforce user_id from token
+    if profile.clerkUserId != user_id:
+        logger.warning(f"User ID mismatch in creation request: token={user_id}, body={profile.clerkUserId}")
+        profile.clerkUserId = user_id
 
     try:
         collection = get_collection("teachers")
@@ -118,7 +127,7 @@ async def create_teacher_profile(profile: TeacherProfileCreate):
 
 @router.get("/teachers/me", response_model=TeacherProfileResponse)
 async def get_my_teacher_profile(
-    user_id: str = Query(..., description="Clerk User ID")
+    user_id: str = Depends(get_current_user_id)
 ):
     """Get current user's teacher profile."""
     logger.info(f"Fetching teacher profile | userId={user_id}")
@@ -141,7 +150,7 @@ async def get_my_teacher_profile(
 
 @router.get("/teachers/check", response_model=TeacherOnboardingStatus)
 async def check_teacher_onboarding(
-    user_id: str = Query(..., description="Clerk User ID")
+    user_id: str = Depends(get_current_user_id)
 ):
     """
     Check if a user has completed teacher onboarding.
