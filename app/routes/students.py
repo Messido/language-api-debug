@@ -3,7 +3,7 @@ Student Profile API endpoints.
 Handles creation and retrieval of student profiles.
 """
 
-from fastapi import APIRouter, HTTPException, Query, Body, Request
+from fastapi import APIRouter, HTTPException, Query, Body, Request, Depends
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -11,6 +11,7 @@ import random
 
 from app.core.logging import get_logger
 from app.services.db import get_collection
+from app.core.auth import get_current_user_id
 
 logger = get_logger(__name__)
 
@@ -81,12 +82,20 @@ def doc_to_response(doc: dict) -> dict:
 # --- Routes ---
 
 @router.post("/students", response_model=StudentProfileResponse)
-async def create_student_profile(profile: StudentProfileCreate):
+async def create_student_profile(
+    profile: StudentProfileCreate,
+    user_id: str = Depends(get_current_user_id)
+):
     """
     Create a new student profile after onboarding.
     Auto-generates a Student ID (S-xxxxxx).
     """
-    logger.info(f"Creating student profile | userId={profile.clerkUserId}")
+    logger.info(f"Creating student profile | userId={user_id}")
+
+    # Enforce user_id from token
+    if profile.clerkUserId != user_id:
+        logger.warning(f"User ID mismatch in creation request: token={user_id}, body={profile.clerkUserId}")
+        profile.clerkUserId = user_id
 
     try:
         collection = get_collection("students")
@@ -130,7 +139,7 @@ async def create_student_profile(profile: StudentProfileCreate):
 
 @router.get("/students/me", response_model=StudentProfileResponse)
 async def get_my_profile(
-    user_id: str = Query(..., description="Clerk User ID")
+    user_id: str = Depends(get_current_user_id)
 ):
     """Get current user's student profile."""
     logger.info(f"Fetching student profile | userId={user_id}")
@@ -240,7 +249,7 @@ async def get_placement_test(
 
 @router.get("/students/check", response_model=OnboardingStatus)
 async def check_onboarding(
-    user_id: str = Query(..., description="Clerk User ID")
+    user_id: str = Depends(get_current_user_id)
 ):
     """
     Check if a user has completed student onboarding.

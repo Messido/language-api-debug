@@ -3,13 +3,14 @@ Review Cards API endpoints.
 Handles CRUD operations for user's bookmarked vocabulary cards.
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
 
 from app.core.logging import get_logger
 from app.services.db import get_collection
+from app.core.auth import get_current_user_id
 
 logger = get_logger(__name__)
 
@@ -38,7 +39,7 @@ class CardData(BaseModel):
 
 
 class ReviewCardCreate(BaseModel):
-    userId: str
+    userId: Optional[str] = None
     cardId: str
     cardData: CardData
 
@@ -76,12 +77,18 @@ def doc_to_response(doc: dict) -> dict:
 
 # Basic CRUD endpoints
 @router.post("/review-cards")
-async def add_review_card(card: ReviewCardCreate):
+async def add_review_card(
+    card: ReviewCardCreate,
+    user_id: str = Depends(get_current_user_id)
+):
     """
     Add a vocabulary card to user's review list.
     If card already exists for user, returns existing card.
     """
-    logger.info(f"Adding review card | userId={card.userId}, cardId={card.cardId}")
+    logger.info(f"Adding review card | userId={user_id}, cardId={card.cardId}")
+
+    # Always use authenticated user_id
+    card.userId = user_id
     
     try:
         collection = get_collection("review_cards")
@@ -126,7 +133,7 @@ async def add_review_card(card: ReviewCardCreate):
 
 @router.get("/review-cards")
 async def get_review_cards(
-    user_id: str = Query(..., description="User ID from Clerk"),
+    user_id: str = Depends(get_current_user_id),
     limit: int = Query(20, le=100, description="Max cards to return"),
     cursor: Optional[str] = Query(None, description="Cursor for pagination (ISO timestamp)"),
     status: Optional[str] = Query(None, description="Filter by status: pending, reviewed, mastered")
@@ -181,7 +188,7 @@ async def get_review_cards(
 
 @router.get("/review-cards/count")
 async def get_review_count(
-    user_id: str = Query(..., description="User ID from Clerk"),
+    user_id: str = Depends(get_current_user_id),
     status: Optional[str] = Query(None, description="Filter by status")
 ):
     """Get count of user's review cards."""
@@ -206,19 +213,24 @@ async def get_review_count(
 
 # Bulk operations for category bookmarking - MUST be defined before {card_id} routes
 class BulkAddRequest(BaseModel):
-    userId: str
+    userId: Optional[str] = None
     level: str
     category: str  # Category slug
     cards: List[CardData]
 
-
 @router.post("/review-cards/bulk")
-async def bulk_add_review_cards(request: BulkAddRequest):
+async def bulk_add_review_cards(
+    request: BulkAddRequest,
+    user_id: str = Depends(get_current_user_id)
+):
     """
     Bulk add all cards from a category to user's review list.
     Skips cards that are already bookmarked.
     """
-    logger.info(f"Bulk adding cards | userId={request.userId}, level={request.level}, category={request.category}, count={len(request.cards)}")
+    logger.info(f"Bulk adding cards | userId={user_id}, level={request.level}, category={request.category}, count={len(request.cards)}")
+    
+    # Always use authenticated user_id
+    request.userId = user_id
     
     try:
         collection = get_collection("review_cards")
@@ -268,9 +280,9 @@ async def bulk_add_review_cards(request: BulkAddRequest):
 
 @router.delete("/review-cards/bulk")
 async def bulk_remove_review_cards(
-    user_id: str = Query(..., description="User ID from Clerk"),
     level: str = Query(..., description="CEFR level"),
-    category: str = Query(..., description="Category name")
+    category: str = Query(..., description="Category name"),
+    user_id: str = Depends(get_current_user_id)
 ):
     """
     Bulk remove all cards from a category from user's review list.
@@ -301,9 +313,9 @@ async def bulk_remove_review_cards(
 
 @router.get("/review-cards/check-category")
 async def check_category_bookmarked(
-    user_id: str = Query(..., description="User ID from Clerk"),
     level: str = Query(..., description="CEFR level"),
-    category: str = Query(..., description="Category name")
+    category: str = Query(..., description="Category name"),
+    user_id: str = Depends(get_current_user_id)
 ):
     """
     Check if any cards from a specific category are bookmarked.
@@ -334,7 +346,7 @@ async def check_category_bookmarked(
 @router.get("/review-cards/check/{card_id}")
 async def check_is_bookmarked(
     card_id: str,
-    user_id: str = Query(..., description="User ID from Clerk")
+    user_id: str = Depends(get_current_user_id)
 ):
     """Check if a specific card is bookmarked by the user."""
     logger.info(f"Checking bookmark | userId={user_id}, cardId={card_id}")
@@ -357,7 +369,7 @@ async def check_is_bookmarked(
 @router.delete("/review-cards/{card_id}")
 async def remove_review_card(
     card_id: str,
-    user_id: str = Query(..., description="User ID from Clerk")
+    user_id: str = Depends(get_current_user_id)
 ):
     """Remove a card from user's review list."""
     logger.info(f"Removing review card | userId={user_id}, cardId={card_id}")
@@ -387,7 +399,7 @@ async def remove_review_card(
 async def update_review_card(
     card_id: str,
     update: ReviewCardUpdate,
-    user_id: str = Query(..., description="User ID from Clerk")
+    user_id: str = Depends(get_current_user_id)
 ):
     """Update a review card's status."""
     logger.info(f"Updating review card | userId={user_id}, cardId={card_id}, update={update}")
