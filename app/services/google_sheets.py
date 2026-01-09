@@ -11,12 +11,21 @@ load_dotenv()
 logger = get_logger(__name__)
 
 
+
+# Global service cache
+_SERVICE = None
+
 def get_sheets_service():
-    """Create and return Google Sheets API service."""
+    """Create and return Google Sheets API service (cached)."""
+    global _SERVICE
+    
+    if _SERVICE:
+        return _SERVICE
+        
     logger.debug("Creating Google Sheets API service")
     credentials = get_credentials()
-    service = build('sheets', 'v4', credentials=credentials)
-    return service
+    _SERVICE = build('sheets', 'v4', credentials=credentials)
+    return _SERVICE
 
 
 def fetch_vocabulary(

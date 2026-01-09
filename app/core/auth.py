@@ -9,6 +9,9 @@ logger = get_logger(__name__)
 security = HTTPBearer()
 
 class VerifyToken:
+    # Cache clients to avoid repeated JWKS fetches (which triggers rate limits)
+    _jwk_clients = {}
+
     def verify(self, token: str) -> str:
         try:
             # 1. Decode generic claims without verification to get Issuer
@@ -19,13 +22,24 @@ class VerifyToken:
             if not issuer:
                 raise Exception("Missing issuer claim")
 
-            # 2. Fetch JWKS from the issuer
-            # Ideally verify strict issuer against env var, but extracting allows flexibility in this dev setup.
-            jwks_url = f"{issuer}/.well-known/jwks.json"
-            jwks_client = jwt.PyJWKClient(jwks_url)
+            # 2. Fetch JWKS from the issuer (Cached with Retry)
+            if issuer not in self._jwk_clients:
+                jwks_url = f"{issuer}/.well-known/jwks.json"
+                self._jwk_clients[issuer] = jwt.PyJWKClient(jwks_url)
             
-            # This fetches the key that matches the 'kid' in the token header
-            signing_key = jwks_client.get_signing_key_from_jwt(token)
+            jwks_client = self._jwk_clients[issuer]
+            
+            try:
+                # This fetches the key that matches the 'kid' in the token header
+                signing_key = jwks_client.get_signing_key_from_jwt(token)
+            except Exception as e:
+                # If cached client fails (e.g. key rotation), clear cache and retry once
+                logger.warning(f"Failed to get signing key from cache, retrying: {e}")
+                del self._jwk_clients[issuer]
+                jwks_url = f"{issuer}/.well-known/jwks.json"
+                self._jwk_clients[issuer] = jwt.PyJWKClient(jwks_url)
+                jwks_client = self._jwk_clients[issuer]
+                signing_key = jwks_client.get_signing_key_from_jwt(token)
 
             # 3. Verify the token with the fetched key
             decoded = jwt.decode(
@@ -50,10 +64,10 @@ class VerifyToken:
                 headers={"WWW-Authenticate": "Bearer"},
             )
         except Exception as e:
-            logger.error(f"Auth error: {e}")
+            logger.error(f"Auth error type: {type(e).__name__}, details: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication failed",
+                detail=f"Authentication failed: {type(e).__name__}",
                 headers={"WWW-Authenticate": "Bearer"},
             )
 

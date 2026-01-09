@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.logging import get_logger
 from app.middleware.logging import RequestLoggingMiddleware
-from app.routes import vocabulary, review_cards, progress, ai_practice, students, teachers, relationships, groups, grammar
+from app.routes import vocabulary, review_cards, progress, ai_practice, students, teachers, relationships, groups, grammar, practice
 from app.services.db import connect_to_mongodb, close_mongodb_connection
 
 logger = get_logger(__name__)
@@ -49,6 +49,7 @@ app.include_router(teachers.router, prefix="/api", tags=["teachers"])
 app.include_router(relationships.router, prefix="/api", tags=["relationships"])
 app.include_router(groups.router, prefix="/api", tags=["groups"])
 app.include_router(grammar.router, prefix="/api", tags=["grammar"])
+app.include_router(practice.router, prefix="/api", tags=["practice"])
 
 
 @app.get("/")
