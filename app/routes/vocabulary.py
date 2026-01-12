@@ -251,6 +251,54 @@ def slugify(text: str) -> str:
     return slug
 
 
+@router.get("/practice/match-pairs")
+async def get_match_pairs_data(level: Optional[str] = None):
+    """
+    Get vocabulary for Match the Pairs game (A1).
+    Columns in sheet: Level, English word, Image, Word - French, Audio - French
+    """
+    try:
+        from app.services.google_sheets import fetch_practice_data
+        import uuid
+
+        # 1. Fetch from specific sheet
+        raw_data = fetch_practice_data("A1.Match the pairs")
+        
+        # 2. Transform and Filter
+        pairs = []
+        for item in raw_data:
+            # Map columns safely (case-insensitive keys if possible, but matching exact Sheet headers for now)
+            # Sheet Headers detected: 'Level', 'English word', 'Image', 'Word - French', 'Audio - French'
+            item_level = item.get("Level", "").strip()
+            english = item.get("English word", "").strip()
+            french = item.get("Word - French", "").strip()
+            
+            # Simple validation
+            if not english or not french:
+                continue
+                
+            # Filter by Level if requested
+            if level and item_level.lower() != level.lower():
+                continue
+
+            pair_id = str(uuid.uuid4()) # Generate a temporary unique ID for the game session
+            
+            pairs.append({
+                "id": pair_id,
+                "english": english,
+                "french": french,
+                "image": item.get("Image", "").strip() or None,
+                "audio": item.get("Audio - French", "").strip() or None,
+                "level": item_level
+            })
+            
+        return pairs
+
+    except Exception as e:
+        logger.error(f"Error fetching match pairs: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch match pairs practice data")
+
+
 @router.get("/vocabulary/categories-by-level")
 def get_categories_by_level(
     level: Optional[str] = Query(None, description="CEFR level (A1, A2, B1, B2, C1, C2)")
