@@ -236,7 +236,7 @@ def fetch_practice_data(
         best_header_row = 0
         for i, row in enumerate(rows[:5]): # Scan first 5 rows
             row_str = " ".join(str(c) for c in row).lower()
-            if "level" in row_str or "english" in row_str or "french" in row_str:
+            if any(keyword in row_str for keyword in ["level", "english", "french", "misspelled", "answer", "correct", "exercise", "id"]):
                 best_header_row = i
                 break
         
