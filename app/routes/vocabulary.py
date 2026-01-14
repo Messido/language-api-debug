@@ -299,6 +299,7 @@ async def get_match_pairs_data(level: Optional[str] = None):
         raise HTTPException(status_code=500, detail="Failed to fetch match pairs practice data")
 
 
+
 @router.get("/vocabulary/categories-by-level")
 def get_categories_by_level(
     level: Optional[str] = Query(None, description="CEFR level (A1, A2, B1, B2, C1, C2)")
@@ -350,4 +351,139 @@ def get_categories_by_level(
     except Exception as e:
         logger.exception(f"Failed to fetch categories by level | level={level}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/practice/repeat-sentence")
+async def get_repeat_sentence_data(level: Optional[str] = None):
+    """
+    Get data for Repeat Sentence practice (D1).
+    Sheet: D1_Repeat + Correct word
+    """
+    try:
+        from app.services.google_sheets import fetch_practice_data
+        import uuid
+
+        # 1. Fetch from specific sheet
+        raw_data = fetch_practice_data("D1_Repeat + Correct word")
+        
+        # 2. Transform and Filter
+        items = []
+        for item in raw_data:
+            # Columns: ExerciseID, Question, SentenceWithBlank, CompleteSentence, CorrectAnswer, Instruction_EN, Instruction_FR
+            item_level = item.get("Level", "").strip()
+            
+            # Filter by Level if requested
+            if level and item_level.lower() != level.lower():
+                continue
+
+            # Ensure minimal required data exists
+            if not item.get("SentenceWithBlank") or not item.get("CorrectAnswer"):
+                continue
+
+            items.append({
+                "id": str(uuid.uuid4()),
+                "exerciseId": item.get("ExerciseID", ""),
+                "level": item_level,
+                "question": item.get("Question", "Complete the sentence"),
+                "instructionEn": item.get("Instruction_EN", "Complete the sentence with the correct word"),
+                "instructionFr": item.get("Instruction_FR", "Complétez la phrase avec le mot correct"),
+                "sentenceWithBlank": item.get("SentenceWithBlank", ""),
+                "completeSentence": item.get("CompleteSentence", ""),
+                "correctAnswer": item.get("CorrectAnswer", "").strip(),
+                "correctExplanation": item.get("CorrectExplanation_EN", ""),
+                "timeLimit": int(item.get("TimeLimitSeconds", 60)) if item.get("TimeLimitSeconds") else 60
+            })
+            
+        return items
+
+    except Exception as e:
+        logger.error(f"Error fetching repeat sentence data: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch repeat sentence practice data")
+
+
+@router.get("/practice/what-do-you-see")
+async def get_what_do_you_see_data():
+    """
+    Get data for What Do You See practice (D2).
+    Sheet: D2_Speaking+Question
+    """
+    try:
+        from app.services.google_sheets import fetch_practice_data
+        import uuid
+
+        # 1. Fetch from specific sheet
+        raw_data = fetch_practice_data("D2_Speaking+Question")
+        
+        # 2. Transform and Filter
+        items = []
+        for item in raw_data:
+            # Columns: ExerciseID, Question, CorrectAnswer, Instruction_EN, Instruction_FR, BlankIndex
+            
+            # Ensure minimal required data exists
+            if not item.get("Question") or not item.get("CorrectAnswer"):
+                continue
+
+            items.append({
+                "id": str(uuid.uuid4()),
+                "exerciseId": item.get("ExerciseID", ""),
+                "level": item.get("Level", "B1"),
+                "question": item.get("Question", "What do you see?"),
+                "instructionEn": item.get("Instruction_EN", "Complete the sentence with the correct word"),
+                "instructionFr": item.get("Instruction_FR", "Complétez la phrase avec le mot correct"),
+                "correctAnswer": item.get("CorrectAnswer", "").strip(),
+                "correctExplanation": item.get("CorrectExplanation_EN", ""),
+                "timeLimit": int(item.get("TimeLimitSeconds", 60)) if item.get("TimeLimitSeconds") else 60,
+                # Placeholder image since sheet doesn't have URLs yet
+                "imageUrl": "/placeholder-image.png" # You might want this to be a real URL or a local asset path
+            })
+            
+        return items
+
+    except Exception as e:
+        logger.error(f"Error fetching what-do-you-see data: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch what-do-you-see practice data")
+
+
+@router.get("/practice/dictation-image")
+async def get_dictation_image_data():
+    """
+    Get data for Dictation (Image) practice (C3).
+    Sheet: C3_Writing_Image
+    """
+    try:
+        from app.services.google_sheets import fetch_practice_data
+        import uuid
+
+        raw_data = fetch_practice_data("C3_Writing_Image")
+        
+        items = []
+        for item in raw_data:
+            # Columns: ExerciseID, Question_EN, CorrectAnswer, Instruction_EN, Instruction_FR
+            
+            if not item.get("CorrectAnswer"):
+                continue
+
+            # Fallback for Question if missing
+            question = item.get("Question_EN") or "Spell the word"
+
+            items.append({
+                "id": str(uuid.uuid4()),
+                "exerciseId": item.get("ExerciseID", ""),
+                "level": item.get("Level", "A2"),
+                "question": question,
+                "instructionEn": item.get("Instruction_EN", "Spell the word"),
+                "instructionFr": item.get("Instruction_FR", "Épeler le mot"),
+                "correctAnswer": item.get("CorrectAnswer", "").strip(),
+                "timeLimit": int(item.get("TimeLimitSeconds", 60)) if item.get("TimeLimitSeconds") else 60,
+                "imageUrl": item.get("Image") if item.get("Image") else "/placeholder-image.png"
+            })
+            
+        return items
+
+    except Exception as e:
+        logger.error(f"Error fetching dictation-image data: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch dictation-image practice data")
+
+
+
 

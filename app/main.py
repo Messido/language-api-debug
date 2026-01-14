@@ -25,6 +25,7 @@ app = FastAPI(title="Language API", lifespan=lifespan)
 origins = [
     "http://localhost:5173",
     "http://localhost:5174",
+    "http://localhost:5175",
     "http://localhost:3000",
     "https://language-app-rust.vercel.app"
 ]
