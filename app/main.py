@@ -27,7 +27,8 @@ origins = [
     "http://localhost:5174",
     "http://localhost:5175",
     "http://localhost:3000",
-    "https://language-app-rust.vercel.app"
+    "https://language-app-rust.vercel.app",
+    "https://language-app-debug.vercel.app"
 ]
 
 app.add_middleware(
