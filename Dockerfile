@@ -17,5 +17,8 @@ COPY . .
 # Render provides the PORT environment variable
 ENV PORT=8000
 
+# Expose the port
+EXPOSE 8000
+
 # Run the application
 CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT}
